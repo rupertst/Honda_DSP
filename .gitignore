@@ -12,6 +12,8 @@
 /captures
 .venv/
 /tmp/
+__pycache__/
+*.pyc
 .externalNativeBuild
 .cxx
 local.properties
