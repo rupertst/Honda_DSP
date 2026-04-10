@@ -72,7 +72,10 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks, E
 
         val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         val vol : Int = (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC))
-        vol2.text = vol.toString()
+        val savedAppVolume = sharedPreference.getInt("VolumeAppValue", vol)
+        val isSystemVolume = sharedPreference.getBoolean("volAppSwitch", true)
+        volAppSource = if (isSystemVolume) "sys" else "app"
+        vol2.text = if (isSystemVolume) vol.toString() else savedAppVolume.toString()
 
         //val editor = sharedPreference.edit()
         editor.putInt("vol", vol)
@@ -84,19 +87,26 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks, E
         seekSub.progress = sharedPreference.getInt("Sub",2)
         seekBalans.progress = sharedPreference.getInt("Balans",-1)
         seekFader.progress = sharedPreference.getInt("Fader",0)
-        volumeSeekbar.progress = sharedPreference.getInt("Volume",20)
+        volumeSeekbar.progress = savedAppVolume
         speedBar.progress = sharedPreference.getInt("speedBar",0)
 
-        radioGroup.check(sharedPreference.getInt("SVC",1))
+        editor.putInt("SVC", R.id.SvcOff)
+        editor.putString("SVC2", getString(R.string.off))
+        editor.apply()
+
+        radioGroup.check(R.id.SvcOff)
         progressBasy.text = sharedPreference.getInt("Basy",3).toString()
         progressTreble.text = sharedPreference.getInt("Treble",2).toString()
         progressCenter.text = sharedPreference.getInt("Center",3).toString()
         progressSub.text = sharedPreference.getInt("Sub",2).toString()
         Balans.text = sharedPreference.getInt("Balans",-1).toString()
         Fader.text = sharedPreference.getInt("Fader",0).toString()
-        svcTx.text = sharedPreference.getString("SVC2","High")
+        svcTx.text = getString(R.string.off)
+        for (index in 0 until radioGroup.childCount) {
+            radioGroup.getChildAt(index).isEnabled = false
+        }
 
-        volApp.isChecked = sharedPreference.getBoolean("volAppSwitch",true)
+        volApp.isChecked = isSystemVolume
         speedGPS.isChecked = sharedPreference.getBoolean("gpsAppSwitch",true)
 
         imageAns.setImageResource(R.drawable.red_dot)
@@ -710,7 +720,4 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks, E
         m_serial?.close()
     }
 }
-
-
-
 

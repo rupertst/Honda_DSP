@@ -23,7 +23,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.jetbrains.anko.runOnUiThread
 import java.io.UnsupportedEncodingException
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -75,7 +74,7 @@ class HondaDspService : Service() {
     private val hex13a : UByte = 0.toUByte()
     private val hex14a : UByte = 0.toUByte()
 
-    private var svc : String = "High"
+    private var svc : String = "Off"
     private var volSys : Int = 10
     private var volApp : Int = 10
 
@@ -105,6 +104,7 @@ class HondaDspService : Service() {
                             m_serial!!.setParity(UsbSerialInterface.PARITY_NONE)
                             m_serial!!.setFlowControl(UsbSerialInterface.FLOW_CONTROL_OFF)
                             m_serial!!.read(mCallback)
+                            sendCurrentPacketAsync()
                         } else {
                             Log.i("Serial", "port not open")
                             Handler(Looper.getMainLooper()).post {
@@ -273,6 +273,13 @@ class HondaDspService : Service() {
         volReceiver = VolReceiver()
         registerReceiver(volReceiver, filter)
     }
+
+    private fun sendCurrentPacketAsync() {
+        if (!isServiceStarted || m_serial == null) return
+        GlobalScope.launch(Dispatchers.IO) {
+            policzService()
+        }
+    }
     
     private fun startService() {
         if (isServiceStarted) return
@@ -288,30 +295,6 @@ class HondaDspService : Service() {
         m_usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
 
         configureVolumeReceiver()
-
-
-        val filter = IntentFilter()
-        filter.addAction(ACTION_USB_PERMISSION)
-        filter.addAction(UsbManager.ACTION_USB_ACCESSORY_ATTACHED)
-        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-        registerReceiver(broadcastReceiver, filter)
-        startUsbConnecting()
-
-
-
-        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
-        createLocationRequest()
-        locationCallback = object : LocationCallback() {
-            override fun onLocationResult(locationResult: LocationResult) {
-                //locationResult
-                if (!isDone) {
-                    val speedToInt = (locationResult.lastLocation.speed / 0.28).roundToInt()
-                    hex09aSys = speedToInt.toUByte()
-
-                }
-            }
-        }
-        startLocationUpdates()
 
         mCallback = object : UsbSerialInterface.UsbReadCallback {
             override fun onReceivedData(arg0: ByteArray?) {
@@ -339,6 +322,29 @@ class HondaDspService : Service() {
                 }
             }
         }
+
+        val filter = IntentFilter()
+        filter.addAction(ACTION_USB_PERMISSION)
+        filter.addAction(UsbManager.ACTION_USB_ACCESSORY_ATTACHED)
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+        registerReceiver(broadcastReceiver, filter)
+        startUsbConnecting()
+
+
+
+        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
+        createLocationRequest()
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                //locationResult
+                if (!isDone) {
+                    val speedToInt = (locationResult.lastLocation.speed / 0.28).roundToInt()
+                    hex09aSys = speedToInt.toUByte()
+
+                }
+            }
+        }
+        startLocationUpdates()
 
 
 
@@ -444,7 +450,7 @@ class HondaDspService : Service() {
     }
 
     fun updateHex(hexName: String, t: Int) {
-        this@HondaDspService.runOnUiThread {
+        Handler(Looper.getMainLooper()).post {
             //var vol3 = t
             when (hexName) {
                 "volSysValue" -> volSys = t
@@ -466,7 +472,7 @@ class HondaDspService : Service() {
     }
 
     fun updateHexString(hexName: String, t: String) {
-        this@HondaDspService.runOnUiThread {
+        Handler(Looper.getMainLooper()).post {
             //var vol3 = t
             when (hexName) {
                 "center" -> hex10aa = t
@@ -494,20 +500,7 @@ class HondaDspService : Service() {
             vol3 = volApp
         }
 
-        when (svc) {
-                "Off" -> {
-                    hex04a = (vol3).toUByte()
-                }
-                "Low" -> {
-                    hex04a = (vol3 + 64).toUByte()
-                }
-                "Mid" -> {
-                    hex04a = (vol3 + 128).toUByte()
-                }
-                "High" -> {
-                    hex04a = (vol3 + 192).toUByte()
-                }
-            }
+        hex04a = vol3.toUByte()
         if (gpsSource == "sys"){
             hex09a = hex09aSys
         }
@@ -602,9 +595,13 @@ class HondaDspService : Service() {
         val pakiet2 = sharedPreference.getString("Pakiet_zap", "00")
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val savedAppVolume = sharedPreference.getInt("VolumeAppValue", currentVolume)
 
-        svc = sharedPreference.getString("SVC2", "High").toString()
-        volApp = volSys
+        svc = "Off"
+        volSys = currentVolume
+        volApp = savedAppVolume
+        gpsSource = sharedPreference.getString("speedGPS", "sys").toString()
+        volSource = sharedPreference.getString("volApp", "sys").toString()
 
         if (pakiet2?.length == 32) {
 
@@ -614,11 +611,6 @@ class HondaDspService : Service() {
             hex08a = (pakiet2.subSequence(15..17).toString().toIntOrNull(16) ?: 0).toUByte()
             hex10aa = (pakiet2[20].toString())
             hex10ab = (pakiet2[21].toString())
-            volSys = currentVolume
-            gpsSource = sharedPreference.getString("speedGPS", "sys").toString()
-            volSource = sharedPreference.getString("volApp", "sys").toString()
-
-
         }
     }
 

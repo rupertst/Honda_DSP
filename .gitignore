@@ -10,6 +10,8 @@
 .DS_Store
 /build
 /captures
+.venv/
+/tmp/
 .externalNativeBuild
 .cxx
 local.properties
