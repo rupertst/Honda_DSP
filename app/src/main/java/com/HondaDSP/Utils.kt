@@ -7,20 +7,29 @@ import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
-fun log(msg: String) {
-    Log.d("Honda DSP", msg)
-}
-
 private const val LOG_TAG = "Honda DSP"
 private const val LOG_DIRECTORY = "logs"
 private const val LOG_FILE_NAME = "hondadsp.log"
 private const val USB_LOG_ROOT = "/storage/USB3"
 private val LOG_TIMESTAMP_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+@Volatile
+private var logContext: Context? = null
 
 fun log(context: Context?, msg: String) {
+    if (context != null) {
+        logContext = context.applicationContext
+    }
+    log(msg)
+}
+
+fun initializeLogging(context: Context) {
+    logContext = context.applicationContext
+}
+
+fun log(msg: String) {
     Log.d(LOG_TAG, msg)
-    appendLogToFile(context, msg)
+    appendLogToFile(logContext, msg)
 }
 
 private fun appendLogToFile(context: Context?, msg: String) {

@@ -32,6 +32,8 @@ import kotlin.properties.Delegates
 class HondaDspService : Service() {
 
     companion object {
+        private const val USB_RETRY_DELAY_MS = 2_000L
+
         var ins2: HondaDspService? = null
         fun getInstance(): HondaDspService? {
             return ins2
@@ -82,7 +84,10 @@ class HondaDspService : Service() {
     private var volSource : String = "sys"
 
     private var ampErrors : Int = 0
-    private var reconnectingUsb = false
+    @Volatile
+    private var usbConnectionLoopRunning = false
+    @Volatile
+    private var usbPermissionPending = false
     
     lateinit var m_usbManager: UsbManager
     var m_device: UsbDevice? = null
@@ -92,8 +97,12 @@ class HondaDspService : Service() {
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action!! == ACTION_USB_PERMISSION) {
+            val action = intent?.action
+            log("USB broadcast action=$action")
+            if (action == ACTION_USB_PERMISSION) {
+                usbPermissionPending = false
                 val granted: Boolean = intent.extras!!.getBoolean(UsbManager.EXTRA_PERMISSION_GRANTED)
+                log("USB permission granted=$granted device=${m_device?.deviceName}")
                 if (granted) {
                     m_connection = m_usbManager.openDevice(m_device)
                     m_serial = UsbSerialDevice.createUsbSerialDevice(m_device, m_connection)
@@ -105,9 +114,11 @@ class HondaDspService : Service() {
                             m_serial!!.setParity(UsbSerialInterface.PARITY_NONE)
                             m_serial!!.setFlowControl(UsbSerialInterface.FLOW_CONTROL_OFF)
                             m_serial!!.read(mCallback)
+                            log("USB serial port opened device=${m_device?.deviceName}")
                             sendCurrentPacketAsync()
                         } else {
-                            Log.i("Serial", "port not open")
+                            log("USB serial port failed to open device=${m_device?.deviceName}")
+                            disconnect()
                             Handler(Looper.getMainLooper()).post {
                                 val toast = Toast.makeText(
                                     applicationContext, "port not open",
@@ -118,7 +129,8 @@ class HondaDspService : Service() {
 
                         }
                     } else {
-                        Log.i("Serial", "port is null")
+                        log("USB serial device is unsupported or unavailable device=${m_device?.deviceName}")
+                        disconnect()
                         Handler(Looper.getMainLooper()).post {
                             val toast = Toast.makeText(
                                 applicationContext, "port is null",
@@ -128,7 +140,7 @@ class HondaDspService : Service() {
                         }
                     }
                 } else {
-                    Log.i("Serial","permission not granted")
+                    log("USB permission denied device=${m_device?.deviceName}")
                     Handler(Looper.getMainLooper()).post {
                         val toast = Toast.makeText(
                             applicationContext, "permission not granted",
@@ -137,10 +149,11 @@ class HondaDspService : Service() {
                         toast.show()
                     }
                 }
-            } else if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
-                startUsbConnecting()
-            } else if (intent.action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
+            } else if (action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+                ensureUsbConnection()
+            } else if (action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
                 disconnect()
+                ensureUsbConnection()
             }
         }
     }
@@ -171,6 +184,7 @@ class HondaDspService : Service() {
             log(
                 "with a null intent. It has been probably restarted by the system."
             )
+            startService()
         }
         // by returning this we make sure the service is restarted if the system kills the service
         return START_STICKY
@@ -178,6 +192,7 @@ class HondaDspService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        initializeLogging(this)
         log("The service has been created".uppercase())
         val notification = createNotification()
         startForeground(1, notification)
@@ -213,20 +228,26 @@ class HondaDspService : Service() {
     
     
     private fun startUsbConnecting() {
+        if (m_serial != null || usbPermissionPending) return
+
         val usbDevices: HashMap<String, UsbDevice>? = m_usbManager.deviceList
-        if (!usbDevices?.isEmpty()!!) {
+        if (!usbDevices.isNullOrEmpty()) {
+            log("USB device scan count=${usbDevices.size}")
             var keep = true
             usbDevices.forEach{ entry ->
                 m_device = entry.value
                 val deviceVendorId: Int? = m_device?.vendorId
-                Log.i("serial", "vendorId: "+deviceVendorId)
+                log(
+                    "USB device name=${m_device?.deviceName} vendorId=$deviceVendorId " +
+                        "productId=${m_device?.productId}"
+                )
 
                 if (deviceVendorId == 1027) {
                     val intent: PendingIntent = PendingIntent.getBroadcast(this, 0, Intent(ACTION_USB_PERMISSION),0)
+                    usbPermissionPending = true
                     m_usbManager.requestPermission(m_device, intent)
-                    reconnectingUsb = false
                     keep = false
-                    Log.i("serial", "connection successful")
+                    log("USB permission requested device=${m_device?.deviceName}")
                     Handler(Looper.getMainLooper()).post {
                         val toast = Toast.makeText(
                             applicationContext, "connection successful",
@@ -237,7 +258,7 @@ class HondaDspService : Service() {
                 } else {
                     m_connection = null
                     m_device = null
-                    Log.i("serial", "unable to connect")
+                    log("USB device ignored because vendorId=$deviceVendorId")
                     Handler(Looper.getMainLooper()).post {
                         val toast = Toast.makeText(applicationContext, "unable to connect",
                             Toast.LENGTH_SHORT
@@ -252,17 +273,24 @@ class HondaDspService : Service() {
                 }
             }
         } else {
-            Log.i("serial", "no usb device connected")
+            log("USB device scan found no devices")
 
         }
     }
 
     private fun sendData(input: ByteArray) {
-        m_serial?.write(input)
-        Log.i("serial", "sending data: "+input)
+        val serial = m_serial
+        if (serial == null) {
+            log("RS485 packet skipped because USB serial is unavailable")
+            return
+        }
+        serial.write(input)
+        log("RS485 packet sent=${input.toHex()}")
     }
 
     private fun disconnect() {
+        log("USB serial disconnect device=${m_device?.deviceName} serialOpen=${m_serial != null}")
+        usbPermissionPending = false
         m_serial?.close()
         m_serial = null
         m_connection?.close()
@@ -287,18 +315,32 @@ class HondaDspService : Service() {
         }
     }
 
-    private fun reconnectUsb() {
-        if (!isServiceStarted || reconnectingUsb) return
-        reconnectingUsb = true
-        disconnect()
+    private fun ensureUsbConnection() {
+        if (!isServiceStarted || m_serial != null || usbConnectionLoopRunning) return
+        usbConnectionLoopRunning = true
+        log("USB connection loop started")
         GlobalScope.launch(Dispatchers.IO) {
-            delay(500)
-            startUsbConnecting()
+            while (isServiceStarted && m_serial == null) {
+                startUsbConnecting()
+                delay(USB_RETRY_DELAY_MS)
+            }
+            usbConnectionLoopRunning = false
+            log("USB connection loop stopped serialOpen=${m_serial != null}")
         }
+    }
+
+    private fun reconnectUsb() {
+        if (!isServiceStarted) return
+        log("USB serial reconnect requested")
+        disconnect()
+        ensureUsbConnection()
     }
     
     private fun startService() {
-        if (isServiceStarted) return
+        if (isServiceStarted) {
+            log("Service start ignored because it is already initialized")
+            return
+        }
         log("Starting the foreground service task")
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(this, "Service starting its task", Toast.LENGTH_SHORT).show()
@@ -322,6 +364,7 @@ class HondaDspService : Service() {
                             data = arg0.toHex()
 
                         }
+                        log("RS485 response=${data ?: "null"}")
                         "$data/n"
                         MainActivity.getInstance()?.tvAppend(data.toString())
                         if (data == "14806c") {
@@ -331,10 +374,11 @@ class HondaDspService : Service() {
                         else{
                             MainActivity.getInstance()?.updateAns("notok")
                         }
-                    } catch (e: UnsupportedEncodingException) {
-                        e.printStackTrace()
+                    } catch (exception: UnsupportedEncodingException) {
+                        log("RS485 response decode failed: ${exception.message}")
                     }
-                } catch (e: Exception) {
+                } catch (exception: Exception) {
+                    log("RS485 response handling failed: ${exception.message}")
                 }
             }
         }
@@ -345,7 +389,8 @@ class HondaDspService : Service() {
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         registerReceiver(broadcastReceiver, filter)
-        startUsbConnecting()
+        log("USB receiver registered")
+        ensureUsbConnection()
 
 
 

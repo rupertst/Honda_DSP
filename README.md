@@ -42,6 +42,15 @@ APK output:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Startup Companion
+
+The automatic-start launcher is a separate app. When updating startup behavior, install both APKs:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r startup/build/outputs/apk/debug/startup-debug.apk
+```
+
 If your machine is behind TLS inspection or a corporate proxy, Gradle may fail to download dependencies until Java trusts your local network certificates.
 
 Links to builded APK:
