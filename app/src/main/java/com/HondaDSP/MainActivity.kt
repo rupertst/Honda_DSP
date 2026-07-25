@@ -52,6 +52,8 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks, E
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        log(this, "MainActivity onCreate intent=${intent?.action}")
+
         setContentView(R.layout.activity_main)
 
         sharedPreference =  getSharedPreferences("Pakiet", MODE_PRIVATE)
@@ -720,4 +722,3 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks, E
         m_serial?.close()
     }
 }
-

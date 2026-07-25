@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Honda DSP"
 include ':app'
+include ':startup'

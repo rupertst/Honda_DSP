@@ -82,6 +82,7 @@ class HondaDspService : Service() {
     private var volSource : String = "sys"
 
     private var ampErrors : Int = 0
+    private var reconnectingUsb = false
     
     lateinit var m_usbManager: UsbManager
     var m_device: UsbDevice? = null
@@ -223,6 +224,7 @@ class HondaDspService : Service() {
                 if (deviceVendorId == 1027) {
                     val intent: PendingIntent = PendingIntent.getBroadcast(this, 0, Intent(ACTION_USB_PERMISSION),0)
                     m_usbManager.requestPermission(m_device, intent)
+                    reconnectingUsb = false
                     keep = false
                     Log.i("serial", "connection successful")
                     Handler(Looper.getMainLooper()).post {
@@ -262,6 +264,10 @@ class HondaDspService : Service() {
 
     private fun disconnect() {
         m_serial?.close()
+        m_serial = null
+        m_connection?.close()
+        m_connection = null
+        m_device = null
     }
 
     private fun ByteArray.toHex(): String = joinToString(separator = "")
@@ -278,6 +284,16 @@ class HondaDspService : Service() {
         if (!isServiceStarted || m_serial == null) return
         GlobalScope.launch(Dispatchers.IO) {
             policzService()
+        }
+    }
+
+    private fun reconnectUsb() {
+        if (!isServiceStarted || reconnectingUsb) return
+        reconnectingUsb = true
+        disconnect()
+        GlobalScope.launch(Dispatchers.IO) {
+            delay(500)
+            startUsbConnecting()
         }
     }
     
@@ -327,6 +343,7 @@ class HondaDspService : Service() {
         filter.addAction(ACTION_USB_PERMISSION)
         filter.addAction(UsbManager.ACTION_USB_ACCESSORY_ATTACHED)
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         registerReceiver(broadcastReceiver, filter)
         startUsbConnecting()
 
@@ -368,12 +385,8 @@ class HondaDspService : Service() {
                     MainActivity.getInstance()?.updateGps(hex09aSys.toInt(),"sys")
                     if (ampErrors == 10) {
                         ampErrors = 0
-                        //disconnect()
-                        //TimeUnit.MILLISECONDS.sleep(1000L)
-                        //log("Reconnecting...")
-                        //startUsbConnecting()
-                        //stopService()
-                        //startService()
+                        log("No amplifier response, reconnecting USB serial")
+                        reconnectUsb()
                     }
 
                 }
