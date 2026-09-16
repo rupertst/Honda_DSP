@@ -29,6 +29,14 @@
         </service>
 
         <activity
+            android:name="com.HondaDSP.StartupBridgeActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.NoDisplay" />
+
+        <activity
             android:name="com.HondaDSP.MainActivity"
             android:exported="true">
             <intent-filter>
@@ -44,9 +52,12 @@
         </activity>
 
         <receiver android:enabled="true" android:name="com.HondaDSP.StartReceiver"
-            android:exported="false">
+            android:exported="false"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
             </intent-filter>
 
         </receiver>

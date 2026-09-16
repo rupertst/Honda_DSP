@@ -21,6 +21,38 @@ You use it on Your own risk, no guarantee.
 If it does not work, I can try to help - no guarantee also
 If You want change ot adapt - feel free to do it - just publish it.
 
+## Build APK
+
+Prerequisites:
+- JDK 17
+- Android SDK installed locally
+- `ANDROID_SDK_ROOT` pointing at your SDK, for example `~/Library/Android/sdk` on macOS
+
+Build a debug APK:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+export ANDROID_SDK_ROOT=~/Library/Android/sdk
+./gradlew --no-daemon assembleDebug
+```
+
+APK output:
+
+```bash
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Startup Companion
+
+The automatic-start launcher is a separate app. When updating startup behavior, install both APKs:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r startup/build/outputs/apk/debug/startup-debug.apk
+```
+
+If your machine is behind TLS inspection or a corporate proxy, Gradle may fail to download dependencies until Java trusts your local network certificates.
+
 Links to builded APK:
 https://www.dropbox.com/s/zwvs0g42nb78gf4/HondaDSP.apk?dl=0
 or:
